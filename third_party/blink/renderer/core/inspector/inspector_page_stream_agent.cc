@@ -64,6 +64,7 @@
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
+#include "third_party/blink/renderer/platform/widget/frame_widget.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/base64.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -161,7 +162,7 @@ InspectorPageStreamAgent::InspectorPageStreamAgent(
 
 InspectorPageStreamAgent::~InspectorPageStreamAgent() = default;
 
-void InspectorPageStreamAgent::Trace(blink::Visitor* visitor) {
+void InspectorPageStreamAgent::Trace(blink::Visitor* visitor) const {
   visitor->Trace(inspected_frames_);
   InspectorBaseAgent::Trace(visitor);
 }
@@ -181,7 +182,7 @@ Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int
   
     Document* document = inspected_frames_->Root()->GetDocument();
     if (!document)
-      return Response::Error("The root frame doesn't have document");
+      return Response::ServerError("The root frame doesn't have document");
 
     if (RootLayer()) for (auto* layer : *(RootLayer()->layer_tree_host()))
       layer->SetNeedsDisplay();
@@ -194,7 +195,7 @@ Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int
   if (send_click_targets.isJust()) send_click_targets_.Set(send_click_targets.fromJust());
   if (auto_open_click_targets.isJust()) auto_open_click_targets_.Set(auto_open_click_targets.fromJust());
 
-  return Response::OK();
+  return Response::Success();
 }
 
 
@@ -512,7 +513,7 @@ Response InspectorPageStreamAgent::disable() {
     layers_.clear();  // Prevents a later UpdateClickTargets callback trying to do anything.
     enabled_.Set(false);
   }
-  return Response::OK();
+  return Response::Success();
 }
 
 void InspectorPageStreamAgent::flush(std::unique_ptr<FlushCallback> cb) {
@@ -620,6 +621,7 @@ void InspectorPageStreamAgent::LayerTreeDidChangeInternal(bool no_dirty) {
   }
 
   updateClickTargets();
+  updateKeyboard();
 
   pending_click_target_update_ = true;
 
@@ -664,7 +666,7 @@ static std::unique_ptr<protocol::PageStream::ClickTarget> BuildClickTarget(Node*
   LayoutObject* layout_object = node->GetLayoutObject();
   if (!layout_object) return nullptr;
 
-  const LayoutBoxModelObject& paint_invalidation_container = layout_object->ContainerForPaintInvalidation();
+  const LayoutBoxModelObject& paint_invalidation_container = layout_object->DirectlyCompositableContainer();
   if (!paint_invalidation_container.Layer())
     return nullptr;
 
@@ -672,7 +674,7 @@ static std::unique_ptr<protocol::PageStream::ClickTarget> BuildClickTarget(Node*
   GraphicsLayer* gfx_layer = paint_layer.GraphicsLayerBacking(layout_object);
   if (!gfx_layer)
     return nullptr;
-  *layer = gfx_layer->CcLayer();
+  *layer = &gfx_layer->CcLayer();
   if (!*layer)
     return nullptr;
 
@@ -695,13 +697,16 @@ static std::unique_ptr<protocol::PageStream::ClickTarget> BuildClickTarget(Node*
 }
 
 void InspectorPageStreamAgent::updateKeyboard() {
-
-  if (inspected_frames_->Root() && !keyboard_guard_) {
-    keyboard_guard_.reset(ImeGuard(inspected_frames_->Root()));
+/*
+  if (inspected_frames_->Root() && inspected_frames_->Root()->GetWidgetForLocalRoot() &&
+      !keyboard_guard_) {
+    keyboard_guard_ = std::make_unique<ImeEventGuard>(->GetWeakPtr());
   }
+*/
+  bool show_keyboard = inspected_frames_->Root()->GetWidgetForLocalRoot()->TextInputInfo().type != kWebTextInputTypeNone;
 
-  if (keyboard_is_showing_ != keyboard_guard_.show_virtual_keyboard()) {
-    keyboard_is_showing_ = keyboard_guard_.show_virtual_keyboard();
+  if (keyboard_is_showing_ != show_keyboard) {
+    keyboard_is_showing_ = show_keyboard;
 
     GetFrontend()->setKeyboardState(keyboard_is_showing_);
   };
@@ -728,7 +733,7 @@ void InspectorPageStreamAgent::updateClickTargets() {
   HeapLinkedHashSet<Member<Node>> candidates;
   HeapLinkedHashSet<Member<Node>> excluded;
   Node* previous_node = nullptr;
-  for (const auto hit_test_result_node : result.ListBasedTestResult()) {
+  for (const auto& hit_test_result_node : result.ListBasedTestResult()) {
     Node* node = hit_test_result_node.Get();
     if (!node || node->IsDocumentNode())
       continue;
@@ -748,7 +753,7 @@ void InspectorPageStreamAgent::updateClickTargets() {
       excluded.insert(node);
   }
 
-  for (const auto node : candidates) {
+  for (const auto& node : candidates) {
     if (excluded.Contains(node))
       continue;
     cc::Layer* layer;
@@ -771,7 +776,7 @@ void InspectorPageStreamAgent::updateClickTargets() {
 Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
   const auto* root_layer = RootLayer();
   if (!root_layer)
-    return Response::OK();
+    return Response::Success();
 
   root_layer->layer_tree_host()->property_trees()->scroll_tree.NotifyDidScroll(cc::ElementId(cc_element_id), gfx::ScrollOffset(x, y), base::nullopt);
 
@@ -779,17 +784,17 @@ Response InspectorPageStreamAgent::setScroll(int cc_element_id, int x, int y) {
 
   pending_click_target_update_ = true;
 
-  return Response::OK();
+  return Response::Success();
 }
 
 Response InspectorPageStreamAgent::clickNode(int backend_node_id) {
   const auto* root_layer = RootLayer();
   if (!root_layer)
-    return Response::Error("No root layer");
+    return Response::ServerError("No root layer");
 
   Node* node = DOMNodeIds::NodeForId(backend_node_id);
   if (!node)
-    return Response::Error("ID does not exist");
+    return Response::InvalidParams("ID does not exist");
 
   node->GetExecutionContext()
       ->GetTaskRunner(TaskType::kUserInteraction)
@@ -799,7 +804,7 @@ Response InspectorPageStreamAgent::clickNode(int backend_node_id) {
                     WrapWeakPersistent(node), nullptr, kSendNoEvents,
                     SimulatedClickCreationScope::kFromUserAgent));
 
-  return Response::OK();
+  return Response::Success();
 }
 
 }  // namespace blink

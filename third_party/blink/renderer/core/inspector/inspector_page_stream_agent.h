@@ -64,7 +64,7 @@ class CORE_EXPORT InspectorPageStreamAgent final
 
   InspectorPageStreamAgent(InspectedFrames*);
   ~InspectorPageStreamAgent() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(blink::Visitor*) const override;
 
   void Restore() override;
 
@@ -97,6 +97,7 @@ protected:
   void LayerRefreshComplete(bool all_done);
 
   void updateClickTargets();
+  void updateKeyboard() ;
 
   Member<InspectedFrames> inspected_frames_;
 
