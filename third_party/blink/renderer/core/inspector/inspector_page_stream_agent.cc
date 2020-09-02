@@ -153,8 +153,9 @@ InspectorPageStreamAgent::InspectorPageStreamAgent(
     pending_frame_refreshs_(0), 
     layer_refresh_missed_deadline_(false),
     keyboard_state_(),
-    target_bandwidth_(&agent_state_, /*default_value=*/-1),
-    fps_(&agent_state_, /*default_value=*/-1),
+    bytes_per_frame_(&agent_state_, /*default_value=*/16000),
+    pipeline_frames_(&agent_state_, /*default_value=*/3),
+    fps_(&agent_state_, /*default_value=*/60),
     send_click_targets_(&agent_state_, /*default_value=*/true),
     auto_open_click_targets_(&agent_state_, /*default_value=*/false),
     enabled_(&agent_state_, /*default_value=*/false)
@@ -171,12 +172,17 @@ void InspectorPageStreamAgent::Restore() {
   if (enabled_.Get()) {
     // Disable and re-enable to register ourself.
     enabled_.Set(false);
-    enable({}, {}, {}, {});
+    enable({}, {}, {}, {}, {});
     GetFrontend()->debugInfo("reset");
   }
 }
 
-Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int> fps, Maybe<bool> send_click_targets, Maybe<bool> auto_open_click_targets) {
+Response InspectorPageStreamAgent::enable(
+    Maybe<int> bytes_per_frame,
+    Maybe<int> pipeline_frames,
+    Maybe<int> fps,
+    Maybe<bool> send_click_targets,
+    Maybe<bool> auto_open_click_targets) {
   if (!enabled_.Get()) {
     instrumenting_agents_->AddInspectorPageStreamAgent(this);
   
@@ -190,7 +196,8 @@ Response InspectorPageStreamAgent::enable(Maybe<int> target_bandwidth, Maybe<int
 
   enabled_.Set(true);
 
-  if (target_bandwidth.isJust()) target_bandwidth_.Set(target_bandwidth.fromJust());
+  if (bytes_per_frame.isJust()) bytes_per_frame_.Set(bytes_per_frame.fromJust());
+  if (pipeline_frames.isJust()) pipeline_frames_.Set(pipeline_frames.fromJust());
   if (fps.isJust()) fps_.Set(fps.fromJust());
   if (send_click_targets.isJust()) send_click_targets_.Set(send_click_targets.fromJust());
   if (auto_open_click_targets.isJust()) auto_open_click_targets_.Set(auto_open_click_targets.fromJust());
@@ -725,6 +732,7 @@ Response InspectorPageStreamAgent::setKeyboardState(const String& input_box_valu
 void InspectorPageStreamAgent::updateClickTargets() {
   if (!send_click_targets_.Get()) return;
   HitTestRequest request(HitTestRequest::kReadOnly | HitTestRequest::kActive |
+                         HitTestRequest::kIgnorePointerEventsNone |
                          HitTestRequest::kListBased |
                          HitTestRequest::kPenetratingList);
   
@@ -755,6 +763,14 @@ void InspectorPageStreamAgent::updateClickTargets() {
     previous_node = node;
     if (!node->HasEventListeners(event_type_names::kClick) && !node->IsLink())
       continue;
+
+    /*  TODO:  Fix this code to ignore child elements of Node, and make it vaguely performant.
+    // If this element is occluded partially, skip it.
+    HitTestResult occlusion_result = node->GetLayoutObject()->HitTestForOcclusion();
+    if (result.InnerNode() != node)
+      continue;
+    */
+
     candidates.insert(node);
     // We exclude all parents of this node, because we don't want to include click handlers inside click handlers
     // They tend to have handlers which look at the event.target JS property, therefore making *any* child node

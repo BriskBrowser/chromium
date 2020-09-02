@@ -75,7 +75,8 @@ class CORE_EXPORT InspectorPageStreamAgent final
 
   // Called from the front-end.
   protocol::Response enable(
-  	protocol::Maybe<int> target_bandwidth,
+  	protocol::Maybe<int> bytes_per_frame,
+    protocol::Maybe<int> pipeline_frames,
   	protocol::Maybe<int> fps,
   	protocol::Maybe<bool> send_click_targets,
   	protocol::Maybe<bool> auto_open_click_targets) override;
@@ -120,7 +121,8 @@ protected:
   WebTextInputInfo keyboard_state_;
 
   // Config from client
-  InspectorAgentState::Integer target_bandwidth_;
+  InspectorAgentState::Integer bytes_per_frame_;
+  InspectorAgentState::Integer pipeline_frames_;
   InspectorAgentState::Integer fps_;
   InspectorAgentState::Boolean send_click_targets_;
   InspectorAgentState::Boolean auto_open_click_targets_;
