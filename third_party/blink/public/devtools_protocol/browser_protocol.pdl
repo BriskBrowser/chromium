@@ -3919,9 +3919,25 @@ experimental domain PageStream
       # TODO:  Refactor API to send diffs of only specific things that change.
       optional string propertyTreesJSON
 
-  event setKeyboardState
+  event keyboardStateChange
     parameters
       boolean showing
+      string inputBoxValue
+      number selectionStart
+      number selectionEnd
+
+  # Sends events to the server to set the contents of the currently selected inputbox
+  # TODO:  Change API to not do wierd things if state changes occur cocurrently on
+  # server and client.
+  # TODO:  Change API to not send entire text string with every keystroke - 
+  # operational transforms?
+  command setKeyboardState
+    parameters
+      string inputBoxValue
+      number selectionStart
+      number selectionEnd
+
+
 
 experimental domain LayerTree
   depends on DOM

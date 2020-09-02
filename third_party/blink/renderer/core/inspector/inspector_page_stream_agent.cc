@@ -152,7 +152,7 @@ InspectorPageStreamAgent::InspectorPageStreamAgent(
     pending_click_target_update_(false), 
     pending_frame_refreshs_(0), 
     layer_refresh_missed_deadline_(false),
-    keyboard_is_showing_(false),
+    keyboard_state_(),
     target_bandwidth_(&agent_state_, /*default_value=*/-1),
     fps_(&agent_state_, /*default_value=*/-1),
     send_click_targets_(&agent_state_, /*default_value=*/true),
@@ -404,6 +404,8 @@ public:
     z_index_changed_ = true;
     z_index_ = z;
   }
+
+  int zIndex() { return z_index_; }
 
   void updateClickTargets(std::map<int, std::unique_ptr<protocol::PageStream::ClickTarget>>& click_targets) {
     std::unique_ptr<protocol::Array<protocol::PageStream::ClickTarget>> targets = std::make_unique<protocol::Array<protocol::PageStream::ClickTarget>>();
@@ -697,19 +699,27 @@ static std::unique_ptr<protocol::PageStream::ClickTarget> BuildClickTarget(Node*
 }
 
 void InspectorPageStreamAgent::updateKeyboard() {
-/*
-  if (inspected_frames_->Root() && inspected_frames_->Root()->GetWidgetForLocalRoot() &&
-      !keyboard_guard_) {
-    keyboard_guard_ = std::make_unique<ImeEventGuard>(->GetWeakPtr());
+  const auto& new_keyboard_state = inspected_frames_->Root()->GetWidgetForLocalRoot()->TextInputInfo();
+
+  if (!keyboard_state_.Equals(new_keyboard_state)) {
+    keyboard_state_ = new_keyboard_state;
+
+    GetFrontend()->keyboardStateChange(
+      keyboard_state_.type != kWebTextInputTypeNone /* showing */,
+      keyboard_state_.value,
+      keyboard_state_.selection_start,
+      keyboard_state_.selection_end
+    );
   }
-*/
-  bool show_keyboard = inspected_frames_->Root()->GetWidgetForLocalRoot()->TextInputInfo().type != kWebTextInputTypeNone;
+}
 
-  if (keyboard_is_showing_ != show_keyboard) {
-    keyboard_is_showing_ = show_keyboard;
+Response InspectorPageStreamAgent::setKeyboardState(const String& input_box_value, double selection_start, double selection_end) {
 
-    GetFrontend()->setKeyboardState(keyboard_is_showing_);
-  };
+  FrameWidget* fw = inspected_frames_->Root()->GetWidgetForLocalRoot();
+
+  fw->SetComposition(input_box_value, Vector<ui::ImeTextSpan>(), gfx::Range(0, 999), (int)selection_start, (int)selection_end);
+  
+  return Response::Success();
 }
 
 void InspectorPageStreamAgent::updateClickTargets() {
@@ -763,13 +773,8 @@ void InspectorPageStreamAgent::updateClickTargets() {
     }
   }
 
-  for (auto& click_targets_for_layer : click_targets) {
-    if (layers_.Contains(click_targets_for_layer.first)) {
-      scoped_refptr<blink::InspectorPageStreamAgent::ClientSideLayer> layer = 
-          layers_.at(click_targets_for_layer.first);
-
-      layer->updateClickTargets(click_targets_for_layer.second);
-    }
+  for (const auto& it : layers_ ) {
+    it.value->updateClickTargets(click_targets[it.key]);
   }
 }
 

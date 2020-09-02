@@ -33,6 +33,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "ui/compositor/compositor_lock.h"
+#include "third_party/blink/public/platform/web_text_input_info.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/PageStream.h"
@@ -87,6 +88,9 @@ class CORE_EXPORT InspectorPageStreamAgent final
       override;
 
   protocol::Response clickNode(int backend_node_id) override;
+
+  protocol::Response setKeyboardState(const String& input_box_value, double selection_start, double selection_end) override;
+
 protected:
   float GetDPR();
 
@@ -113,8 +117,7 @@ protected:
 
   std::string prop_trees_;
 
-  std::unique_ptr<ImeEventGuard> keyboard_guard_;
-  bool keyboard_is_showing_;
+  WebTextInputInfo keyboard_state_;
 
   // Config from client
   InspectorAgentState::Integer target_bandwidth_;
