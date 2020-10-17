@@ -36,6 +36,7 @@
 #include "third_party/blink/public/platform/web_text_input_info.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
+#include "third_party/blink/renderer/core/inspector/inspector_task_runner.h"
 #include "third_party/blink/renderer/core/inspector/protocol/PageStream.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/widget/input/ime_event_guard.h"
@@ -90,16 +91,20 @@ class CORE_EXPORT InspectorPageStreamAgent final
 
   protocol::Response clickNode(int backend_node_id) override;
 
+  protocol::Response ackFrame() override;
+
   protocol::Response setKeyboardState(const String& input_box_value, double selection_start, double selection_end) override;
 
 protected:
   float GetDPR();
+  scoped_refptr<InspectorTaskRunner> GetTaskRunner();
+
 
  private:
   void LayerTreeDidChangeInternal(bool);
   
   const cc::Layer* RootLayer();
-  void LayerRefreshComplete(bool all_done);
+  void LayerRefreshComplete(bool all_done, int bytes_sent);
 
   void updateClickTargets();
   void updateKeyboard() ;
@@ -107,7 +112,7 @@ protected:
   Member<InspectedFrames> inspected_frames_;
 
   bool pending_click_target_update_;
-  int pending_frame_refreshs_;
+  int pending_layer_refreshs_;
 
   bool frame_is_queued_;
   bool layer_refresh_missed_deadline_;
@@ -117,6 +122,9 @@ protected:
   LayerMap layers_;
 
   std::string prop_trees_;
+
+  int bytes_unacked_;
+  int frames_unacked_;
 
   WebTextInputInfo keyboard_state_;
 

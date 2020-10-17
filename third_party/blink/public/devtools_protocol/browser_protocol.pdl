@@ -3849,6 +3849,9 @@ experimental domain PageStream
   # to the client.
   command flush
 
+  # Must be sent by the client once per frameDone
+  command ackFrame
+
   # Information about a clickable thing.
   type ClickTarget extends object
     properties
