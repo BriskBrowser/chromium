@@ -34,13 +34,13 @@
 #include <memory>
 
 #include "base/debug/stack_trace.h"
-#include "base/stl_util.h"
 #include "base/json/json_writer.h"
 #include "base/memory/singleton.h"
+#include "base/stl_util.h"
 #include "cc/base/region.h"
 #include "cc/layers/picture_layer.h"
-#include "cc/trees/transform_node.h"
 #include "cc/trees/clip_node.h"
+#include "cc/trees/transform_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -52,9 +52,9 @@
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/graphics/compositing_reasons.h"
@@ -71,8 +71,8 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 #include "third_party/skia/include/core/SkPicture.h"
-#include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace blink {
@@ -331,6 +331,63 @@ private:
   DISALLOW_COPY_AND_ASSIGN(ImageCache);
 };
 
+void SubtractImages(sk_sp<SkSurface> output_surface, sk_sp<SkSurface> stored_surface, int offsetX, int offsetY) {
+  SkImageInfo output_info;
+  size_t output_rowBytes;
+  uint32_t* output_layer = (uint32_t*)output_surface->getCanvas()->accessTopLayerPixels(&output_info, &output_rowBytes);
+  SkASSERT(output_layer);
+  SkASSERT(output_info.colorType() == kRGBA_8888_SkColorType ||
+           output_info.colorType() == kBGRA_8888_SkColorType);
+  SkASSERT(!output_info.isEmpty());
+
+  SkImageInfo stored_info;
+  size_t stored_rowBytes;
+  const uint32_t* stored_layer = (uint32_t*)stored_surface->getCanvas()->accessTopLayerPixels(&stored_info, &stored_rowBytes);
+  SkASSERT(stored_layer);
+  SkASSERT(stored_info.colorType() == kRGBA_8888_SkColorType ||
+           stored_info.colorType() == kBGRA_8888_SkColorType);
+  SkASSERT(!stored_info.isEmpty());
+
+  // bound x
+  int width,height;
+  if (offsetX>0) {
+    width = std::min(output_info.width()-offsetX, stored_info.width());
+    output_layer += offsetX;
+  } else {
+    width = std::min(output_info.width(), stored_info.width()+offsetX);
+    stored_layer -= offsetX;
+  }
+  if (offsetY>0) {
+    height = std::min(output_info.height()-offsetY, stored_info.height());
+    output_layer += offsetY*output_rowBytes;
+  } else {
+    height = std::min(output_info.height(), stored_info.height()+offsetY);
+    stored_layer -= offsetY*output_rowBytes;
+  }
+
+  if (height<0 || width<0) return;
+
+  while (height--) {
+    int n = width;
+    const uint32_t* stored_row = stored_layer;
+    const uint32_t* output_row = output_layer;
+
+    while (n) {
+      if (*stored_layer == *output_layer) {
+        if (((n/8)%2) ^ ((height/8)%2))
+          *output_layer = 255<<24;
+      }
+
+      stored_layer += 1;
+      output_layer += 1;
+      n   -= 1;
+    }
+    stored_layer = (const uint32_t*)( (char*)stored_row + stored_rowBytes );
+    output_layer = (uint32_t*)( (char*)output_row + output_rowBytes );
+  }
+
+}
+
 String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
                                         double scale, int quality, bool opaque) {
   TRACE_EVENT0("pagestream", "RenderPicture");
@@ -354,10 +411,25 @@ String RenderPicture(sk_sp<SkPicture> input, const gfx::Rect& clip_rect,
   }
 
   ImageCacheEntry match = ImageCache::GetInstance()->InsertAndMatchSurface(surface);
-  
+
+
+  sk_sp<SkSurface> output_surface = SkSurface::MakeRasterN32Premul(width, height);
+  SkCanvas* output_canvas = output_surface->getCanvas();
+
+  surface->draw(output_canvas, 0, 0, nullptr);
+  if (match.buffer) {
+    SubtractImages(output_surface, match.buffer, match.offsetX, match.offsetY);
+    
+    /*
+
+    output_canvas->
+    SkPaint p;
+    p.setAlphaf(0.5);
+    match.buffer->draw(output_canvas, 0, 0, &p); */
+  }
   
 
-  sk_sp<SkImage> img(surface->makeImageSnapshot());
+  sk_sp<SkImage> img(output_surface->makeImageSnapshot());
   if (!img) return "";
 
   sk_sp<SkData> webp;
