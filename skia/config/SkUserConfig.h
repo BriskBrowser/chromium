@@ -242,7 +242,8 @@ SK_API void SkDebugf_FileLine(const char* file,
 #define SK_FONT_CONFIG_INTERFACE_ONLY_ALLOW_SFNT_FONTS
 
 #define SK_IGNORE_BLURRED_RRECT_OPT
-#define SK_USE_DISCARDABLE_SCALEDIMAGECACHE
+// Disabled because it sometimes does synchronous waiting, causing a checkfail.
+//#define SK_USE_DISCARDABLE_SCALEDIMAGECACHE
 
 #define SK_ATTR_DEPRECATED          SK_NOTHING_ARG1
 #define GR_GL_CUSTOM_SETUP_HEADER   "GrGLConfig_chrome.h"
