@@ -362,10 +362,10 @@ void SubtractImages(sk_sp<SkSurface> output_surface, sk_sp<SkSurface> stored_sur
     output_layer += offsetY*output_rowBytes;
   } else {
     height = std::min(output_info.height(), stored_info.height()+offsetY);
-    stored_layer -= offsetY*output_rowBytes;
+    stored_layer -= offsetY*stored_rowBytes;
   }
 
-  if (height<0 || width<0) return;
+  if (height<=0 || width<=0) return;
 
   while (height--) {
     int n = width;
